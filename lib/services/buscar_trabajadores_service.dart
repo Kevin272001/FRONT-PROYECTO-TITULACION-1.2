@@ -1,23 +1,52 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+
 import '../models/trabajador_model.dart';
 
 class BuscarTrabajadoresService {
-  static const String _url =
-      'http://10.0.2.2:4000/api/trabajador/buscar';
+  static const String _apiBase = 'http://10.0.2.2:4000';
 
-  static Future<List<TrabajadorModel>> buscarPerfiles() async {
-    final response = await http.get(Uri.parse(_url));
+  /// GET /api/trabajador/buscar?categoria=...&experiencia=...
+  static Future<List<TrabajadorModel>> buscarPerfiles({
+    String? categoria,
+    int? experiencia,
+  }) async {
+    final uri = Uri.parse('$_apiBase/api/trabajador/buscar').replace(
+      queryParameters: {
+        if (categoria != null && categoria.trim().isNotEmpty)
+          'categoria': categoria.trim(),
+        if (experiencia != null) 'experiencia': experiencia.toString(),
+      },
+    );
 
-    if (response.statusCode == 200) {
-      final body = jsonDecode(response.body);
-      final List lista = body['trabajadores'] ?? [];
+    final resp = await http.get(
+      uri,
+      headers: const {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    );
 
-      return lista
-          .map((json) => TrabajadorModel.fromJson(json))
-          .toList();
-    } else {
-      throw Exception('Error al cargar trabajadores');
+    if (resp.statusCode != 200) {
+      throw Exception('HTTP ${resp.statusCode}: ${resp.body}');
     }
+
+    final decoded = jsonDecode(resp.body);
+
+    // ✅ Soporta varias formas de respuesta
+    final List<dynamic> lista = decoded is List
+        ? decoded
+        : (decoded['trabajadores'] ??
+                decoded['data'] ??
+                decoded['results'] ??
+                decoded['perfiles'] ??
+                []) as List<dynamic>;
+
+    return lista
+        .where((e) => e is Map)
+        .map((e) => TrabajadorModel.fromJson(
+              Map<String, dynamic>.from(e as Map),
+            ))
+        .toList();
   }
 }
