@@ -6,8 +6,12 @@ class CompleteProfileForm extends StatefulWidget {
   final Map<String, dynamic>? initialData;
   final String token;
 
-  // Callback
-  final Function(Map<String, dynamic> data, String token) onSubmit;
+  // ✅ ahora pasa el archivo por separado
+  final Future<void> Function(
+    Map<String, dynamic> data,
+    PlatformFile? recordPolicialFile,
+    String token,
+  ) onSubmit;
 
   const CompleteProfileForm({
     super.key,
@@ -34,10 +38,7 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
   final _horarioController = TextEditingController();
   final _experienciaController = TextEditingController();
 
-  // ✅ tipo de persona
   String? _tipoPersona; // "NATURAL" | "JURIDICA"
-
-  // ✅ archivo récord policial (OPCIONAL)
   PlatformFile? _recordPolicialFile;
 
   bool _loading = false;
@@ -68,9 +69,7 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
       _direccionController.text = d['direccion'] ?? '';
       _horarioController.text = d['horario'] ?? '';
       _experienciaController.text = d['experiencia']?.toString() ?? '';
-
-      _tipoPersona = d['tipoPersona']; // "NATURAL" o "JURIDICA"
-      // OJO: no llenamos _recordPolicialFile desde initialData (es archivo local)
+      _tipoPersona = d['tipoPersona'];
     }
   }
 
@@ -92,7 +91,7 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
-        withData: true, // útil si necesitas bytes (web o multipart)
+        withData: false, // ✅ recomendado en Android (usa path)
       );
 
       if (result == null || result.files.isEmpty) return;
@@ -108,22 +107,22 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
     }
   }
 
-  void _removeRecordPolicial() {
-    setState(() => _recordPolicialFile = null);
-  }
+  void _removeRecordPolicial() => setState(() => _recordPolicialFile = null);
 
   Future<void> _handleSubmit() async {
     FocusScope.of(context).unfocus();
 
     if (!(_formKey.currentState?.validate() ?? false)) {
-      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Revisa los campos obligatorios')),
+      );
       return;
     }
 
-    // ✅ YA NO ES OBLIGATORIO subir récord policial (opcional en emulador)
     setState(() => _loading = true);
 
-    final payload = {
+    // ✅ payload 100% JSON-safe (SIN PlatformFile)
+    final payload = <String, dynamic>{
       'nombreCompleto': _nombreController.text.trim(),
       'cedulaRuc': _cedulaController.text.trim().isEmpty
           ? null
@@ -136,13 +135,16 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
       'horario': _horarioController.text.trim(),
       'experiencia': int.tryParse(_experienciaController.text.trim()) ?? 0,
       'tipoPersona': _tipoPersona ?? 'NATURAL',
-
-      // ✅ opcional: puede ser null y no pasa nada
-      'recordPolicialFile': _recordPolicialFile,
     };
 
     try {
-      widget.onSubmit(payload, widget.token);
+      // ✅ pasamos el archivo aparte
+      await widget.onSubmit(payload, _recordPolicialFile, widget.token);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo guardar: $e')),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -167,7 +169,6 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
             ? AutovalidateMode.always
             : AutovalidateMode.disabled,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 8),
@@ -177,7 +178,6 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
               ),
             ),
 
-            // ✅ Tipo de persona
             DropdownButtonFormField<String>(
               value: _tipoPersona,
               isExpanded: true,
@@ -185,13 +185,9 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
                 DropdownMenuItem(value: 'NATURAL', child: Text('Persona Natural')),
                 DropdownMenuItem(value: 'JURIDICA', child: Text('Persona Jurídica')),
               ],
-              decoration: _inputDecoration(
-                label: 'Tipo de persona',
-                icon: Icons.person_outline,
-              ),
+              decoration: _inputDecoration(label: 'Tipo de persona', icon: Icons.person_outline),
               onChanged: (v) => setState(() => _tipoPersona = v),
-              validator: (v) =>
-                  (v == null || v.isEmpty) ? 'Seleccione el tipo de persona' : null,
+              validator: (v) => (v == null || v.isEmpty) ? 'Seleccione el tipo de persona' : null,
             ),
             const SizedBox(height: 10),
 
@@ -225,9 +221,7 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
             DropdownButtonFormField<String>(
               value: _categoria,
               isExpanded: true,
-              items: _categorias
-                  .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                  .toList(),
+              items: _categorias.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
               decoration: _inputDecoration(label: 'Categoría', icon: Icons.category),
               onChanged: (v) => setState(() => _categoria = v),
               validator: (v) => v == null || v.isEmpty ? 'Seleccione una categoría' : null,
@@ -236,10 +230,7 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
 
             TextFormField(
               controller: _descripcionController,
-              decoration: _inputDecoration(
-                label: 'Descripción del servicio',
-                icon: Icons.description,
-              ),
+              decoration: _inputDecoration(label: 'Descripción del servicio', icon: Icons.description),
               maxLines: 3,
               validator: (v) => v == null || v.trim().isEmpty ? 'Campo requerido' : null,
             ),
@@ -247,35 +238,25 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
 
             TextFormField(
               controller: _direccionController,
-              decoration: _inputDecoration(
-                label: 'Dirección o zona de atención',
-                icon: Icons.location_on,
-              ),
+              decoration: _inputDecoration(label: 'Dirección o zona de atención', icon: Icons.location_on),
               validator: (v) => v == null || v.trim().isEmpty ? 'Campo requerido' : null,
             ),
             const SizedBox(height: 10),
 
             TextFormField(
               controller: _horarioController,
-              decoration: _inputDecoration(
-                label: 'Horario de atención',
-                icon: Icons.access_time,
-              ),
+              decoration: _inputDecoration(label: 'Horario de atención', icon: Icons.access_time),
               validator: (v) => v == null || v.trim().isEmpty ? 'Campo requerido' : null,
             ),
             const SizedBox(height: 10),
 
             TextFormField(
               controller: _experienciaController,
-              decoration: _inputDecoration(
-                label: 'Años de experiencia',
-                icon: Icons.timeline,
-              ),
+              decoration: _inputDecoration(label: 'Años de experiencia', icon: Icons.timeline),
               keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 10),
 
-            // ✅ Subir récord policial (OPCIONAL)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
@@ -287,10 +268,7 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Récord policial (opcional)',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
+                  const Text('Récord policial (opcional)', style: TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -305,28 +283,18 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
                         onPressed: _loading ? null : _pickRecordPolicial,
                         icon: const Icon(Icons.upload_file),
                         label: const Text('Subir'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF6D28D9),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
                       ),
                       if (_recordPolicialFile != null) ...[
                         const SizedBox(width: 8),
                         IconButton(
                           onPressed: _loading ? null : _removeRecordPolicial,
                           icon: const Icon(Icons.close),
-                          tooltip: "Quitar archivo",
                         ),
                       ],
                     ],
                   ),
                   const SizedBox(height: 6),
-                  const Text(
-                    'Formatos: PDF / JPG / PNG',
-                    style: TextStyle(fontSize: 12, color: Colors.black54),
-                  ),
+                  const Text('Formatos: PDF / JPG / PNG', style: TextStyle(fontSize: 12, color: Colors.black54)),
                 ],
               ),
             ),
@@ -337,15 +305,7 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: _loading ? null : _handleSubmit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF8B5CF6),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                child: Text(
-                  _loading ? 'Guardando...' : 'Guardar y continuar',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
+                child: Text(_loading ? 'Guardando...' : 'Guardar y continuar'),
               ),
             ),
           ],

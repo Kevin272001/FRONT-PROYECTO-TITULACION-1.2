@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
 
 import '../providers/trabajador_provider.dart';
 import '../providers/auth_provider.dart';
@@ -33,6 +35,9 @@ class PerfilTrabajadorScreen extends StatefulWidget {
 class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
   final _formKey = GlobalKey<FormState>();
 
+  // ✅ BASE para armar URL completa del record
+  static const String _apiBaseHost = "http://10.0.2.2:4000";
+
   late TextEditingController _nombreCtrl;
   late TextEditingController _telefonoCtrl;
   final _ubicacionCtrl = TextEditingController();
@@ -43,7 +48,6 @@ class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
   List<String> _habilidades = [];
 
   PlatformFile? _pickedFoto;
-  PlatformFile? _pickedCv;
 
   @override
   void initState() {
@@ -97,26 +101,13 @@ class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
     }
   }
 
-  Future<void> _pickCv() async {
-    final res = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf', 'doc', 'docx'],
-      withData: true,
-    );
-    if (res != null && res.files.isNotEmpty) {
-      setState(() => _pickedCv = res.files.first);
-    }
-  }
-
   Future<void> _guardar() async {
     if (!_formKey.currentState!.validate()) return;
 
     File? fotoFile;
-    File? cvFile;
 
     if (!kIsWeb) {
       if (_pickedFoto?.path != null) fotoFile = File(_pickedFoto!.path!);
-      if (_pickedCv?.path != null) cvFile = File(_pickedCv!.path!);
     }
 
     final provider = context.read<TrabajadorProvider>();
@@ -130,7 +121,6 @@ class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
     );
 
     if (fotoFile != null) await provider.uploadFoto(fotoFile);
-    if (cvFile != null) await provider.uploadCv(cvFile);
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -170,7 +160,118 @@ class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
   }
 
   // ==========================================================
-  // ✅ PDF CV con DISEÑO PRO (SIN withOpacity)
+  // ✅ SACAR URL DEL RÉCORD desde el perfil
+  // (soporta varios nombres por si en tu backend cambia)
+  // ==========================================================
+  String? _extractRecordUrl(Map<String, dynamic>? perfil) {
+    if (perfil == null) return null;
+
+    // keys posibles
+    const keys = [
+      "recordPolicialUrl",
+      "recordPolicial",
+      "recordUrl",
+      "record_policial_url",
+      "recordPolicialPath",
+      "record_path",
+    ];
+
+    for (final k in keys) {
+      final v = perfil[k];
+      final s = (v ?? "").toString().trim();
+      if (s.isNotEmpty) return s;
+    }
+
+    // por si viene anidado
+    final nested = perfil["perfilLaboral"];
+    if (nested is Map) {
+      for (final k in keys) {
+        final v = nested[k];
+        final s = (v ?? "").toString().trim();
+        if (s.isNotEmpty) return s;
+      }
+    }
+
+    return null;
+  }
+
+  String _fullUrl(String raw) {
+    final r = raw.trim();
+    if (r.startsWith("http://") || r.startsWith("https://")) return r;
+    if (r.startsWith("/")) return "$_apiBaseHost$r";
+    return "$_apiBaseHost/$r";
+  }
+
+  bool _isPdf(String url) => url.toLowerCase().endsWith(".pdf");
+  bool _isImage(String url) {
+    final u = url.toLowerCase();
+    return u.endsWith(".jpg") || u.endsWith(".jpeg") || u.endsWith(".png");
+  }
+
+  Future<Uint8List> _downloadBytes(String url) async {
+    final resp = await http.get(Uri.parse(url));
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      return resp.bodyBytes;
+    }
+    throw Exception("No se pudo descargar el archivo (${resp.statusCode})");
+  }
+
+  Future<void> _verRecord(String url) async {
+    if (_isPdf(url)) {
+      final bytes = await _downloadBytes(url);
+      await Printing.layoutPdf(onLayout: (_) async => bytes);
+      return;
+    }
+
+    if (_isImage(url)) {
+      if (!mounted) return;
+      await showDialog(
+        context: context,
+        builder: (_) => Dialog(
+          child: InteractiveViewer(
+            child: Image.network(url, fit: BoxFit.contain),
+          ),
+        ),
+      );
+      return;
+    }
+
+    // si viene otro tipo, igual intentamos descargar y mostrar como error
+    throw Exception("Tipo de archivo no soportado para vista previa.");
+  }
+
+  Future<void> _descargarRecordComoPdf(String url) async {
+    final bytes = await _downloadBytes(url);
+
+    // si ya es PDF => share directo
+    if (_isPdf(url)) {
+      await Printing.sharePdf(bytes: bytes, filename: "record_policial.pdf");
+      return;
+    }
+
+    // si es imagen => la metemos en un PDF y compartimos
+    if (_isImage(url)) {
+      final doc = pw.Document();
+      final img = pw.MemoryImage(bytes);
+
+      doc.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          build: (_) => pw.Center(
+            child: pw.Image(img, fit: pw.BoxFit.contain),
+          ),
+        ),
+      );
+
+      await Printing.sharePdf(bytes: await doc.save(), filename: "record_policial.pdf");
+      return;
+    }
+
+    throw Exception("Tipo de archivo no soportado para descargar.");
+  }
+
+  // ==========================================================
+  // ✅ PDF CV (lo de siempre, no lo toco)
   // ==========================================================
   Future<void> _descargarCV(Map<String, dynamic> perfil) async {
     final doc = pw.Document();
@@ -191,7 +292,6 @@ class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
 
     final fecha = DateFormat('dd/MM/yyyy').format(DateTime.now());
 
-    // Colores PDF (AARRGGBB)
     final purple = PdfColor.fromInt(0xFF7C3AED);
     final purpleDark = PdfColor.fromInt(0xFF5B21B6);
     final text = PdfColor.fromInt(0xFF111827);
@@ -199,11 +299,10 @@ class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
     final border = PdfColor.fromInt(0xFFE5E7EB);
     final soft = PdfColor.fromInt(0xFFF3F4F6);
 
-    // Blancos con alpha (NO withOpacity)
-    final white18 = PdfColor.fromInt(0x2EFFFFFF); // ~18%
-    final white85 = PdfColor.fromInt(0xD9FFFFFF); // ~85%
-    final white92 = PdfColor.fromInt(0xEBFFFFFF); // ~92%
-    final white75 = PdfColor.fromInt(0xBFFFFFFF); // ~75%
+    final white18 = PdfColor.fromInt(0x2EFFFFFF);
+    final white85 = PdfColor.fromInt(0xD9FFFFFF);
+    final white92 = PdfColor.fromInt(0xEBFFFFFF);
+    final white75 = PdfColor.fromInt(0xBFFFFFFF);
 
     pw.Widget tag(String t) {
       return pw.Container(
@@ -291,7 +390,6 @@ class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
             child: pw.Row(
               crossAxisAlignment: pw.CrossAxisAlignment.stretch,
               children: [
-                // LEFT SIDEBAR
                 pw.Container(
                   width: 170,
                   padding: const pw.EdgeInsets.all(16),
@@ -387,7 +485,6 @@ class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
                   ),
                 ),
 
-                // RIGHT CONTENT
                 pw.Expanded(
                   child: pw.Padding(
                     padding: const pw.EdgeInsets.all(16),
@@ -514,6 +611,7 @@ class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<TrabajadorProvider>();
+    final perfil = provider.perfil;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
@@ -557,7 +655,7 @@ class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
                     width: double.infinity,
                     height: 46,
                     child: OutlinedButton.icon(
-                      onPressed: provider.perfil == null ? null : () => _descargarCV(provider.perfil!),
+                      onPressed: perfil == null ? null : () => _descargarCV(perfil),
                       icon: const Icon(Icons.picture_as_pdf),
                       label: const Text('Descargar CV'),
                     ),
@@ -589,7 +687,10 @@ class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
                   const SizedBox(height: 20),
                   _habilidadesCard(),
                   const SizedBox(height: 20),
-                  _cvCard(),
+
+                  // ✅ AQUÍ REEMPLAZAZAMOS CV POR RECORD POLICIAL
+                  _recordPolicialCard(perfil),
+
                   const SizedBox(height: 40),
                 ],
               ),
@@ -715,24 +816,87 @@ class _PerfilTrabajadorScreenState extends State<PerfilTrabajadorScreen> {
     );
   }
 
-  Widget _cvCard() {
+  // ✅ NUEVA CARD: RÉCORD POLICIAL
+  Widget _recordPolicialCard(Map<String, dynamic>? perfil) {
+    final raw = _extractRecordUrl(perfil);
+    final full = (raw == null) ? null : _fullUrl(raw);
+
+    final filename = full == null
+        ? null
+        : Uri.parse(full).pathSegments.isNotEmpty
+            ? Uri.parse(full).pathSegments.last
+            : "record_policial";
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: _box(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Currículum (CV)", style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text("Récord Policial", style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          OutlinedButton(
-            onPressed: _pickCv,
-            child: const Text("Seleccionar Archivo"),
-          ),
-          if (_pickedCv != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(_pickedCv!.name),
+
+          if (full == null) ...[
+            const Text(
+              "No has subido un récord policial todavía.\n(Sale del Complete Profile / perfil-laboral)",
+              style: TextStyle(color: Colors.black54),
             ),
+          ] else ...[
+            Text(
+              filename ?? "Archivo",
+              style: const TextStyle(fontSize: 13),
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 12),
+
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      try {
+                        await _verRecord(full);
+                      } catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text("No se pudo abrir: $e")),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.visibility),
+                    label: const Text("Ver"),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      try {
+                        await _descargarRecordComoPdf(full);
+                      } catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text("No se pudo descargar: $e")),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.download),
+                    label: const Text("Descargar"),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
+            Text(
+              _isPdf(full)
+                  ? "Tipo: PDF"
+                  : _isImage(full)
+                      ? "Tipo: Imagen"
+                      : "Tipo: Desconocido",
+              style: const TextStyle(color: Colors.black54, fontSize: 12),
+            ),
+          ],
         ],
       ),
     );
