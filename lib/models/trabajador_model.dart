@@ -12,6 +12,9 @@ class TrabajadorModel {
 
   final int experiencia;
 
+  // ✅ NUEVO: URL del récord policial (sale del backend)
+  final String recordPolicialUrl;
+
   const TrabajadorModel({
     required this.id,
     required this.userId,
@@ -20,6 +23,7 @@ class TrabajadorModel {
     required this.categoria,
     required this.descripcion,
     required this.experiencia,
+    required this.recordPolicialUrl, // ✅ NUEVO
   });
 
   static String _s(dynamic v) => (v ?? '').toString().trim();
@@ -47,18 +51,18 @@ class TrabajadorModel {
   }
 
   factory TrabajadorModel.fromJson(Map<String, dynamic> json) {
-    // ✅ tu backend (según lo pegado) usa `usuario` como alias
+    // ✅ tu backend usa `usuario` como alias
     final dynamic u = json['usuario'] ?? json['user'] ?? json['User'] ?? {};
     final dynamic pl = json['perfilLaboral'] ?? json['PerfilLaboral'] ?? {};
 
     final nombre = _pickStr([
-      json['nombre'],                // por si viene plano
+      json['nombre'], // por si viene plano
       u is Map ? u['nombre'] : null, // usual
       u is Map ? u['name'] : null,
     ], fallback: 'Sin nombre');
 
     final email = _pickStr([
-      json['email'],               // por si viene plano
+      json['email'], // por si viene plano
       u is Map ? u['email'] : null // usual
     ], fallback: 'Sin email');
 
@@ -79,6 +83,13 @@ class TrabajadorModel {
       fallback: 0,
     );
 
+    // ✅ NUEVO: record policial (plano desde backend)
+    final recordPolicialUrl = _pickStr([
+      json['recordPolicialUrl'],
+      json['record_policial_url'],
+      pl is Map ? pl['recordPolicialUrl'] : null,
+    ], fallback: '');
+
     return TrabajadorModel(
       id: _i(json['id'], fallback: 0),
       userId: _i(json['userId'] ?? (u is Map ? u['id'] : null), fallback: 0),
@@ -87,6 +98,7 @@ class TrabajadorModel {
       categoria: categoria,
       descripcion: descripcion,
       experiencia: experiencia,
+      recordPolicialUrl: recordPolicialUrl, // ✅ NUEVO
     );
   }
 }

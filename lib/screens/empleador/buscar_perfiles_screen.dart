@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart'; // ✅ NUEVO
 import '../../services/buscar_trabajadores_service.dart';
 import '../../models/trabajador_model.dart';
 import 'perfil_trabajador_screen.dart';
@@ -13,6 +14,10 @@ class BuscarPerfilesScreen extends StatefulWidget {
 class _BuscarPerfilesScreenState extends State<BuscarPerfilesScreen> {
   final _searchCtrl = TextEditingController();
   String _query = "";
+
+  // ✅ BACKEND URL (Emulador Android)
+  // Si es celular físico: cambia a la IP de tu PC, ej: http://192.168.1.50:3000
+  static const String _baseUrl = 'http://10.0.2.2:3000';
 
   @override
   void dispose() {
@@ -30,6 +35,28 @@ class _BuscarPerfilesScreenState extends State<BuscarPerfilesScreen> {
     final hash = s.codeUnits.fold<int>(0, (p, c) => p + c);
     final hue = (hash % 360).toDouble();
     return HSVColor.fromAHSV(1, hue, 0.45, 0.85).toColor();
+  }
+
+  // ✅ NUEVO: construir URL absoluta del archivo
+  String _buildFileUrl(String path) {
+    if (path.isEmpty) return '';
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    return '$_baseUrl$path'; // /uploads/... => http://10.0.2.2:3000/uploads/...
+  }
+
+  // ✅ NUEVO: abrir PDF/imagen
+  Future<void> _openRecord(String recordPath) async {
+    final url = _buildFileUrl(recordPath);
+    if (url.isEmpty) return;
+
+    final uri = Uri.parse(url);
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo abrir el récord policial')),
+      );
+    }
   }
 
   @override
@@ -57,7 +84,8 @@ class _BuscarPerfilesScreenState extends State<BuscarPerfilesScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.error_outline, size: 46, color: theme.colorScheme.error),
+                    Icon(Icons.error_outline,
+                        size: 46, color: theme.colorScheme.error),
                     const SizedBox(height: 10),
                     const Text(
                       'Error al cargar perfiles',
@@ -106,7 +134,8 @@ class _BuscarPerfilesScreenState extends State<BuscarPerfilesScreen> {
                         color: Colors.black.withOpacity(0.06),
                       ),
                     ],
-                    border: Border.all(color: theme.dividerColor.withOpacity(0.35)),
+                    border:
+                        Border.all(color: theme.dividerColor.withOpacity(0.35)),
                   ),
                   child: TextField(
                     controller: _searchCtrl,
@@ -125,7 +154,8 @@ class _BuscarPerfilesScreenState extends State<BuscarPerfilesScreen> {
                               },
                             ),
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 14),
                     ),
                   ),
                 ),
@@ -141,14 +171,18 @@ class _BuscarPerfilesScreenState extends State<BuscarPerfilesScreen> {
                     final t = filtered[index];
 
                     final nombre = _safeStr(t.nombre, fallback: "Sin nombre");
-                    final categoria = _safeStr(t.categoria, fallback: "Sin categoría");
+                    final categoria =
+                        _safeStr(t.categoria, fallback: "Sin categoría");
                     final desc = _safeStr(
                       t.descripcion,
                       fallback: "Disponible para trabajos en tu zona.",
                     );
 
                     final baseColor = _colorFromString("$categoria|$nombre");
-                    final initial = nombre.isNotEmpty ? nombre[0].toUpperCase() : "T";
+                    final initial =
+                        nombre.isNotEmpty ? nombre[0].toUpperCase() : "T";
+
+                    final tieneRecord = t.recordPolicialUrl.isNotEmpty;
 
                     return InkWell(
                       borderRadius: BorderRadius.circular(18),
@@ -156,7 +190,8 @@ class _BuscarPerfilesScreenState extends State<BuscarPerfilesScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => PerfilTrabajadorScreen(trabajador: t),
+                            builder: (_) =>
+                                PerfilTrabajadorScreen(trabajador: t),
                           ),
                         );
                       },
@@ -172,7 +207,8 @@ class _BuscarPerfilesScreenState extends State<BuscarPerfilesScreen> {
                               theme.colorScheme.surface,
                             ],
                           ),
-                          border: Border.all(color: theme.dividerColor.withOpacity(0.35)),
+                          border: Border.all(
+                              color: theme.dividerColor.withOpacity(0.35)),
                           boxShadow: [
                             BoxShadow(
                               blurRadius: 18,
@@ -191,7 +227,9 @@ class _BuscarPerfilesScreenState extends State<BuscarPerfilesScreen> {
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 color: baseColor.withOpacity(0.20),
-                                border: Border.all(color: baseColor.withOpacity(0.65), width: 1.2),
+                                border: Border.all(
+                                    color: baseColor.withOpacity(0.65),
+                                    width: 1.2),
                               ),
                               child: Center(
                                 child: Text(
@@ -230,7 +268,8 @@ class _BuscarPerfilesScreenState extends State<BuscarPerfilesScreen> {
                                       Icon(
                                         Icons.chevron_right_rounded,
                                         size: 24,
-                                        color: theme.colorScheme.outline.withOpacity(0.75),
+                                        color: theme.colorScheme.outline
+                                            .withOpacity(0.75),
                                       ),
                                     ],
                                   ),
@@ -250,19 +289,40 @@ class _BuscarPerfilesScreenState extends State<BuscarPerfilesScreen> {
                                         icon: Icons.timeline,
                                         label: "Exp: ${t.experiencia} años",
                                       ),
+                                      _Chip(
+                                        icon: Icons.security,
+                                        label: tieneRecord
+                                            ? "Récord: Sí"
+                                            : "Récord: No",
+                                      ),
                                     ],
                                   ),
 
+                                  // ✅ NUEVO: botón para abrir PDF/imagen
+                                  if (tieneRecord) ...[
+                                    const SizedBox(height: 6),
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: TextButton.icon(
+                                        onPressed: () =>
+                                            _openRecord(t.recordPolicialUrl),
+                                        icon: const Icon(Icons.picture_as_pdf),
+                                        label: const Text('Ver récord'),
+                                      ),
+                                    ),
+                                  ],
+
                                   const SizedBox(height: 10),
 
-                                  // Descripción (para que no se vea vacío)
+                                  // Descripción
                                   Text(
                                     desc,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: theme.colorScheme.onSurface.withOpacity(0.72),
+                                      color: theme.colorScheme.onSurface
+                                          .withOpacity(0.72),
                                       height: 1.25,
                                     ),
                                   ),

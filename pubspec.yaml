@@ -25,6 +25,7 @@ dependencies:
   file_picker: ^8.0.0
   image_picker: ^1.0.7
   path: ^1.9.0
+  path_provider: ^2.1.4
 
   # 📦 UI / Utilidades
   expandable: ^5.0.1
@@ -37,6 +38,9 @@ dependencies:
 
   # 🔗 Abrir links / PDFs (CV)
   url_launcher: ^6.3.0
+
+  # ✅ ABRIR ARCHIVOS DESCARGADOS (PDF) EN EL DISPOSITIVO
+  open_filex: ^4.6.0
 
 dev_dependencies:
   flutter_test:
