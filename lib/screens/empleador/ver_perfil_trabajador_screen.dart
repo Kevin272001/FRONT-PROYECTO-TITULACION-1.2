@@ -25,8 +25,7 @@ class VerPerfilTrabajadorScreen extends StatefulWidget {
   });
 
   @override
-  State<VerPerfilTrabajadorScreen> createState() =>
-      _VerPerfilTrabajadorScreenState();
+  State<VerPerfilTrabajadorScreen> createState() => _VerPerfilTrabajadorScreenState();
 }
 
 class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
@@ -34,7 +33,9 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
 
   bool loading = true;
   String? error;
+
   bool abriendoPdf = false;
+  bool abriendoRecord = false;
 
   Map<String, dynamic>? perfil;
 
@@ -46,8 +47,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
     return s.isEmpty ? fallback : s;
   }
 
-  String _pick(Map<String, dynamic> m, List<String> keys,
-      {String fallback = ""}) {
+  String _pick(Map<String, dynamic> m, List<String> keys, {String fallback = ""}) {
     for (final k in keys) {
       final v = _s(m[k]);
       if (v.isNotEmpty) return v;
@@ -64,15 +64,13 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
     final str = v.toString().trim();
     if (str.isEmpty) return null;
 
-    // extrae el primer número que encuentre
     final m = RegExp(r'(\d+)').firstMatch(str);
     if (m != null) return int.tryParse(m.group(1) ?? '');
     return null;
   }
 
   /// ✅ busca experiencia en varias keys sin “dañar”
-  int _pickYears(Map<String, dynamic> m, List<String> keys,
-      {int fallback = 0}) {
+  int _pickYears(Map<String, dynamic> m, List<String> keys, {int fallback = 0}) {
     for (final k in keys) {
       final parsed = _yearsNullable(m[k]);
       if (parsed != null) return parsed;
@@ -83,8 +81,133 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
   String _fullUrl(String url) {
     final u = url.trim();
     if (u.isEmpty) return "";
-    if (u.startsWith("http")) return u;
-    return "$_apiBase$u";
+    if (u.startsWith("http://") || u.startsWith("https://")) return u;
+    // si viene "/uploads/..." => _apiBase + "/uploads/..."
+    if (u.startsWith("/")) return "$_apiBase$u";
+    return "$_apiBase/$u";
+  }
+
+  bool _isPdf(String url) => url.toLowerCase().endsWith(".pdf");
+  bool _isImage(String url) {
+    final u = url.toLowerCase();
+    return u.endsWith(".jpg") || u.endsWith(".jpeg") || u.endsWith(".png");
+  }
+
+  // ==========================================================
+  // ✅ SACAR URL DEL RÉCORD desde el perfil
+  // ==========================================================
+  String? _extractRecordUrl(Map<String, dynamic>? p) {
+    if (p == null) return null;
+
+    const keys = [
+      "recordPolicialUrl",
+      "recordPolicial",
+      "recordUrl",
+      "record_policial_url",
+      "recordPolicialPath",
+      "record_path",
+    ];
+
+    for (final k in keys) {
+      final v = (p[k] ?? "").toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+
+    // por si viene anidado
+    final nested = p["perfilLaboral"];
+    if (nested is Map) {
+      final nn = Map<String, dynamic>.from(nested);
+      for (final k in keys) {
+        final v = (nn[k] ?? "").toString().trim();
+        if (v.isNotEmpty) return v;
+      }
+    }
+
+    return null;
+  }
+
+  Future<Uint8List> _downloadBytes(String url, {String? token}) async {
+    final resp = await http.get(
+      Uri.parse(url),
+      headers: {
+        if (token != null) "Authorization": "Bearer $token",
+      },
+    );
+
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      if (resp.bodyBytes.isEmpty) throw Exception("El archivo está vacío.");
+      return resp.bodyBytes;
+    }
+    throw Exception("No se pudo descargar (HTTP ${resp.statusCode})");
+  }
+
+  Future<void> _verRecord(String url, {String? token}) async {
+    if (abriendoRecord) return;
+    setState(() => abriendoRecord = true);
+
+    try {
+      if (_isPdf(url)) {
+        final bytes = await _downloadBytes(url, token: token);
+        if (!mounted) return;
+        await Printing.layoutPdf(onLayout: (_) async => bytes);
+        return;
+      }
+
+      if (_isImage(url)) {
+        final bytes = await _downloadBytes(url, token: token);
+        if (!mounted) return;
+        await showDialog(
+          context: context,
+          builder: (_) => Dialog(
+            child: InteractiveViewer(
+              child: Image.memory(bytes, fit: BoxFit.contain),
+            ),
+          ),
+        );
+        return;
+      }
+
+      throw Exception("Tipo de archivo no soportado.");
+    } finally {
+      if (mounted) setState(() => abriendoRecord = false);
+    }
+  }
+
+  Future<void> _descargarRecordComoPdf(String url, {String? token}) async {
+    if (abriendoRecord) return;
+    setState(() => abriendoRecord = true);
+
+    try {
+      final bytes = await _downloadBytes(url, token: token);
+
+      // si ya es PDF => share directo
+      if (_isPdf(url)) {
+        await Printing.sharePdf(bytes: bytes, filename: "record_policial.pdf");
+        return;
+      }
+
+      // si es imagen => convertir a PDF
+      if (_isImage(url)) {
+        final doc = pw.Document();
+        final img = pw.MemoryImage(bytes);
+
+        doc.addPage(
+          pw.Page(
+            pageFormat: PdfPageFormat.a4,
+            build: (_) => pw.Center(
+              child: pw.Image(img, fit: pw.BoxFit.contain),
+            ),
+          ),
+        );
+
+        await Printing.sharePdf(bytes: await doc.save(), filename: "record_policial.pdf");
+        return;
+      }
+
+      throw Exception("Tipo no soportado para descargar.");
+    } finally {
+      if (mounted) setState(() => abriendoRecord = false);
+    }
   }
 
   // ===============================
@@ -250,13 +373,13 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
     final telefono = _pick(perfil, ["telefono", "celular", "phone"],
         fallback: _s(widget.telefonoInicial, fallback: ''));
     final categoria =
-        _pick(perfil, ["categoria", "profesion", "oficio", "category"],
-            fallback: "");
-    final direccion = _pick(perfil,
-        ["direccion", "ubicacion", "direccionCompleta", "location", "address"],
-        fallback: "");
+        _pick(perfil, ["categoria", "profesion", "oficio", "category"], fallback: "");
+    final direccion = _pick(
+      perfil,
+      ["direccion", "ubicacion", "direccionCompleta", "location", "address"],
+      fallback: "",
+    );
 
-    // ✅ EXPERIENCIA PDF (aunque venga "3 años")
     final exp = _pickYears(perfil, [
       "experiencia",
       "aniosExperiencia",
@@ -387,8 +510,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
                         decoration: pw.BoxDecoration(
                           color: white18,
                           shape: pw.BoxShape.circle,
-                          border:
-                              pw.Border.all(color: PdfColors.white, width: 1),
+                          border: pw.Border.all(color: PdfColors.white, width: 1),
                         ),
                         alignment: pw.Alignment.center,
                         child: pw.Text(
@@ -430,13 +552,11 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
                       pw.SizedBox(height: 10),
                       if (telefono.isNotEmpty)
                         pw.Text("📞  $telefono",
-                            style: pw.TextStyle(
-                                color: white92, fontSize: 10.5)),
+                            style: pw.TextStyle(color: white92, fontSize: 10.5)),
                       if (direccion.isNotEmpty) ...[
                         pw.SizedBox(height: 8),
                         pw.Text("📍  $direccion",
-                            style: pw.TextStyle(
-                                color: white92, fontSize: 10.5),
+                            style: pw.TextStyle(color: white92, fontSize: 10.5),
                             maxLines: 3),
                       ],
                       pw.Spacer(),
@@ -467,13 +587,11 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
                               ),
                             ),
                             pw.Container(
-                              padding: const pw.EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 6),
+                              padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               decoration: pw.BoxDecoration(
                                 color: soft,
                                 borderRadius: pw.BorderRadius.circular(20),
-                                border:
-                                    pw.Border.all(color: border, width: 0.8),
+                                border: pw.Border.all(color: border, width: 0.8),
                               ),
                               child: pw.Text(
                                 "ServX",
@@ -500,7 +618,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
                             children: [
                               infoRow("Nombre", nombre),
                               infoRow("Categoría", categoria),
-                              infoRow("Experiencia", "$exp años"), // ✅ AQUÍ
+                              infoRow("Experiencia", "$exp años"),
                               infoRow("Ubicación", direccion),
                               infoRow("Teléfono", telefono),
                             ],
@@ -515,9 +633,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
                             border: pw.Border.all(color: border, width: 1),
                           ),
                           child: habilidades.isEmpty
-                              ? pw.Text("—",
-                                  style:
-                                      pw.TextStyle(color: muted, fontSize: 11))
+                              ? pw.Text("—", style: pw.TextStyle(color: muted, fontSize: 11))
                               : pw.Wrap(children: habilidades.map(tag).toList()),
                         ),
                         sectionTitle("Resumen"),
@@ -535,15 +651,12 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
                         ),
                         pw.Spacer(),
                         pw.Row(
-                          mainAxisAlignment:
-                              pw.MainAxisAlignment.spaceBetween,
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                           children: [
                             pw.Text("Documento generado desde la app",
-                                style:
-                                    pw.TextStyle(color: muted, fontSize: 9.5)),
+                                style: pw.TextStyle(color: muted, fontSize: 9.5)),
                             pw.Text("© ServX",
-                                style:
-                                    pw.TextStyle(color: muted, fontSize: 9.5)),
+                                style: pw.TextStyle(color: muted, fontSize: 9.5)),
                           ],
                         ),
                       ],
@@ -618,15 +731,135 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
     );
   }
 
+  Widget _recordInlineUI({
+    required Map<String, dynamic> p,
+    required String? token,
+  }) {
+    final raw = _extractRecordUrl(p);
+    final full = raw == null ? null : _fullUrl(raw);
+
+    String fileName = "record_policial";
+    if (full != null) {
+      try {
+        final u = Uri.parse(full);
+        if (u.pathSegments.isNotEmpty) fileName = u.pathSegments.last;
+      } catch (_) {}
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "Récord Policial",
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            color: Color(0xFF111827),
+          ),
+        ),
+        const SizedBox(height: 6),
+
+        if (full == null) ...[
+          const Text(
+            "No disponible",
+            style: TextStyle(
+              color: Color(0xFF6B7280),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ] else ...[
+          Text(
+            fileName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF374151),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: abriendoRecord ? null : () async {
+                    try {
+                      await _verRecord(full, token: token);
+                    } catch (e) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text("No se pudo abrir: $e"),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  },
+                  icon: abriendoRecord
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.visibility),
+                  label: const Text("Ver"),
+                  style: OutlinedButton.styleFrom(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: abriendoRecord ? null : () async {
+                    try {
+                      await _descargarRecordComoPdf(full, token: token);
+                    } catch (e) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text("No se pudo descargar: $e"),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.download),
+                  label: const Text("Descargar"),
+                  style: OutlinedButton.styleFrom(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _isPdf(full)
+                ? "Tipo: PDF"
+                : _isImage(full)
+                    ? "Tipo: Imagen"
+                    : "Tipo: Desconocido",
+            style: const TextStyle(color: Color(0xFF6B7280), fontWeight: FontWeight.w600),
+          ),
+        ],
+      ],
+    );
+  }
+
   // ===============================
   // build
   // ===============================
   @override
   Widget build(BuildContext context) {
+    final auth = context.read<AuthProvider>();
+    final token = auth.token;
+
     final p = perfil ?? {};
 
-    final nombre =
-        _s(p["nombre"], fallback: _s(widget.nombreInicial, fallback: "Trabajador"));
+    final nombre = _s(
+      p["nombre"],
+      fallback: _s(widget.nombreInicial, fallback: "Trabajador"),
+    );
 
     final telefono = _pick(
       p,
@@ -646,7 +879,6 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
       fallback: "—",
     );
 
-    // ✅ EXPERIENCIA UI (aunque venga "3 años")
     final experiencia = _pickYears(p, [
       "experiencia",
       "aniosExperiencia",
@@ -665,8 +897,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
             .toList()
         : <String>[];
 
-    final fotoUrl = _pick(p, ["fotoUrl", "fotoPerfil", "foto", "avatarUrl"],
-        fallback: "");
+    final fotoUrl = _pick(p, ["fotoUrl", "fotoPerfil", "foto", "avatarUrl"], fallback: "");
 
     final cvUrl = _pick(
       p,
@@ -699,6 +930,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                     children: [
+                      // ======== CARD ARRIBA (CV) ========
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: _cardBox(),
@@ -720,7 +952,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
                               runSpacing: 10,
                               children: [
                                 _chip(categoria == "—" ? "Trabajador" : categoria),
-                                _chip("$experiencia años"), // ✅ YA NO SE VA A 0 SI VIENE "3 años"
+                                _chip("$experiencia años"),
                                 _chip(direccionUI == "—" ? "Sin ubicación" : direccionUI),
                               ],
                             ),
@@ -764,6 +996,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
 
                       const SizedBox(height: 14),
 
+                      // ======== CARD NOMBRE/FOTO ========
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: _cardBox(),
@@ -772,8 +1005,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
                             CircleAvatar(
                               radius: 34,
                               backgroundColor: const Color(0xFFF3F4F6),
-                              backgroundImage:
-                                  fotoUrl.isNotEmpty ? NetworkImage(_fullUrl(fotoUrl)) : null,
+                              backgroundImage: fotoUrl.isNotEmpty ? NetworkImage(_fullUrl(fotoUrl)) : null,
                               child: fotoUrl.isEmpty
                                   ? Text(
                                       nombre.isNotEmpty ? nombre[0].toUpperCase() : "T",
@@ -815,6 +1047,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
 
                       const SizedBox(height: 14),
 
+                      // ======== INFO ========
                       _InfoCardPro(
                         items: [
                           _InfoItem(icon: Icons.phone, label: "Teléfono", value: telefono),
@@ -825,6 +1058,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
 
                       const SizedBox(height: 14),
 
+                      // ======== HABILIDADES ========
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: _cardBox(),
@@ -865,7 +1099,8 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
 
                       const SizedBox(height: 14),
 
-                      if (descripcion.isNotEmpty || horario.isNotEmpty)
+                      // ======== DETALLES (AQUÍ VA EL RÉCORD ABAJO DE HORARIO) ========
+                      if (descripcion.isNotEmpty || horario.isNotEmpty || _extractRecordUrl(p) != null)
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: _cardBox(),
@@ -874,6 +1109,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
                             children: [
                               _sectionTitle("Detalles", icon: Icons.info_outline),
                               const SizedBox(height: 12),
+
                               if (descripcion.isNotEmpty) ...[
                                 const Text(
                                   "Descripción",
@@ -893,6 +1129,7 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
                                 ),
                                 const SizedBox(height: 12),
                               ],
+
                               if (horario.isNotEmpty) ...[
                                 const Text(
                                   "Horario",
@@ -909,7 +1146,12 @@ class _VerPerfilTrabajadorScreenState extends State<VerPerfilTrabajadorScreen> {
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
+                                const SizedBox(height: 14),
                               ],
+
+                              // ✅ AQUÍ VA EL RÉCORD POLICIAL (DEBAJO DE HORARIO)
+                              const Divider(height: 24),
+                              _recordInlineUI(p: p, token: token),
                             ],
                           ),
                         ),
@@ -937,9 +1179,7 @@ class _ErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(msg,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.black87)),
+            Text(msg, textAlign: TextAlign.center, style: const TextStyle(color: Colors.black87)),
             const SizedBox(height: 14),
             ElevatedButton(onPressed: onRetry, child: const Text("Reintentar")),
           ],

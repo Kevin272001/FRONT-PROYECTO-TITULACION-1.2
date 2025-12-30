@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import 'progreso_trabajo_screen.dart';
+import 'ver_perfil_trabajador_screen.dart';
 
 // EMULADOR → 10.0.2.2
 const String baseUrl = "http://10.0.2.2:4000";
@@ -25,21 +26,18 @@ class _VerPostulacionesScreenState extends State<VerPostulacionesScreen> {
   bool loading = true;
   List postulaciones = [];
 
+  static const _brand = Color(0xff6A4CE8);
+
   // ============================
   // CARGAR POSTULACIONES
   // ============================
   Future<void> cargarPostulaciones({bool mostrarLoader = false}) async {
     if (!mounted) return;
 
-    if (mostrarLoader) {
-      setState(() => loading = true);
-    }
+    if (mostrarLoader) setState(() => loading = true);
 
     try {
-      final url = Uri.parse(
-        "$baseUrl/api/postulaciones/trabajo/${widget.trabajoId}",
-      );
-
+      final url = Uri.parse("$baseUrl/api/postulaciones/trabajo/${widget.trabajoId}");
       final resp = await http.get(url);
 
       if (!mounted) return;
@@ -66,6 +64,35 @@ class _VerPostulacionesScreenState extends State<VerPostulacionesScreen> {
   }
 
   // =====================================================
+  // ✅ VER DETALLES → ABRE VerPerfilTrabajadorScreen
+  // =====================================================
+  void _irAVerDetalles(Map postulante) {
+    final trabajadorId = postulante["userId"]; // ✅ userId del trabajador
+
+    if (trabajadorId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No se encontró userId del postulante")),
+      );
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VerPerfilTrabajadorScreen(
+          trabajadorId: trabajadorId,
+          nombreInicial: (postulante["nombre"] ?? "Trabajador").toString(),
+          telefonoInicial: (postulante["telefono"] ??
+                  postulante["celular"] ??
+                  postulante["phone"] ??
+                  "")
+              .toString(),
+        ),
+      ),
+    );
+  }
+
+  // =====================================================
   // ✅ ACEPTAR Y ENTRAR A PROGRESO (USER ID)
   // =====================================================
   Future<void> aceptarYIrAProgreso(Map p) async {
@@ -80,8 +107,6 @@ class _VerPostulacionesScreenState extends State<VerPostulacionesScreen> {
 
       if (resp.statusCode == 200) {
         final postulante = p["postulante"] ?? {};
-
-        // ✅ USER ID (NO TRABAJADOR ID)
         final trabajadorId = postulante["userId"];
 
         if (trabajadorId == null) {
@@ -150,28 +175,103 @@ class _VerPostulacionesScreenState extends State<VerPostulacionesScreen> {
   }
 
   // =====================================================
-  // 🎨 CHIP DE ESTADO
+  // 🎨 CHIP DE ESTADO (bonito)
   // =====================================================
   Widget _estadoChip(String estado) {
-    Color color = estado == "aceptado"
-        ? Colors.green
-        : estado == "rechazado"
-            ? Colors.red
-            : Colors.orange;
+    final String e = estado.toLowerCase();
+
+    final Color bg = e == "aceptado"
+        ? const Color(0xFF16A34A)
+        : e == "rechazado"
+            ? const Color(0xFFDC2626)
+            : const Color(0xFFF59E0B);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(30),
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         estado.toUpperCase(),
         style: const TextStyle(
           color: Colors.white,
           fontSize: 11,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.3,
         ),
+      ),
+    );
+  }
+
+  // =====================================================
+  // ✅ BOTÓN PILL (para “Ver detalles”, “Ver progreso”)
+  // =====================================================
+  Widget _pillAction({
+    required IconData icon,
+    required String text,
+    required VoidCallback onTap,
+    Color color = _brand,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.10),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: color.withOpacity(0.25)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Text(
+                text,
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================
+  // 📊 TARJETA DE ESTADÍSTICA
+  // ============================
+  Widget _statCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: color.withOpacity(0.15),
+            child: Icon(icon, color: color),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              Text(
+                value,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -186,7 +286,7 @@ class _VerPostulacionesScreenState extends State<VerPostulacionesScreen> {
       backgroundColor: const Color(0xffF3F0FF),
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: const Color(0xff6A4CE8),
+        backgroundColor: _brand,
         centerTitle: true,
         title: const Text(
           "Postulaciones",
@@ -202,7 +302,7 @@ class _VerPostulacionesScreenState extends State<VerPostulacionesScreen> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(22),
                   decoration: const BoxDecoration(
-                    color: Color(0xff6A4CE8),
+                    color: _brand,
                     borderRadius: BorderRadius.vertical(bottom: Radius.circular(30)),
                   ),
                   child: Column(
@@ -223,7 +323,6 @@ class _VerPostulacionesScreenState extends State<VerPostulacionesScreen> {
                       ),
                       const SizedBox(height: 20),
 
-                      // ✅ Para evitar overflow en pantallas pequeñas
                       Wrap(
                         spacing: 10,
                         runSpacing: 10,
@@ -267,9 +366,7 @@ class _VerPostulacionesScreenState extends State<VerPostulacionesScreen> {
 
                             final estado = (p["estado"] ?? "pendiente").toString();
 
-                            // ✅ USER ID
                             final trabajadorId = postulante["userId"];
-
                             final inicial = nombre.trim().isNotEmpty ? nombre.trim()[0].toUpperCase() : "?";
 
                             return Container(
@@ -312,7 +409,7 @@ class _VerPostulacionesScreenState extends State<VerPostulacionesScreen> {
                                               nombre,
                                               style: const TextStyle(
                                                 fontSize: 16,
-                                                fontWeight: FontWeight.w600,
+                                                fontWeight: FontWeight.w700,
                                               ),
                                             ),
                                             Text(
@@ -330,56 +427,101 @@ class _VerPostulacionesScreenState extends State<VerPostulacionesScreen> {
                                   ),
 
                                   const SizedBox(height: 14),
-
                                   Text(mensaje, style: const TextStyle(fontSize: 14)),
 
-                                  const SizedBox(height: 18),
+                                  const SizedBox(height: 14),
 
-                                  // ✅ FIX AMARILLO: OverflowBar (NO MÁS OVERFLOW)
-                                  OverflowBar(
-                                    alignment: MainAxisAlignment.end,
-                                    overflowAlignment: OverflowBarAlignment.end,
-                                    spacing: 8,
-                                    overflowSpacing: 6,
+                                  // ✅ ACCIONES (YA NO SE VE FEO)
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
+                                      // VER DETALLES (pill pro)
+                                      _pillAction(
+                                        icon: Icons.visibility,
+                                        text: "Ver Perfil",
+                                        onTap: () => _irAVerDetalles(postulante),
+                                      ),
+
+                                      const SizedBox(height: 12),
+
                                       if (estado == "pendiente") ...[
-                                        ElevatedButton(
-                                          onPressed: () => aceptarYIrAProgreso(p),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.green,
-                                          ),
-                                          child: const Text("Aceptar"),
-                                        ),
-                                        OutlinedButton(
-                                          onPressed: () => cambiarEstado(p["id"], "rechazado"),
-                                          child: const Text("Rechazar"),
-                                        ),
-                                      ],
-                                      if (estado == "aceptado")
-                                        TextButton.icon(
-                                          onPressed: () {
-                                            if (trabajadorId == null) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(content: Text("No se encontró userId del postulante")),
-                                              );
-                                              return;
-                                            }
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (_) => ProgresoTrabajoScreen(
-                                                  trabajoId: widget.trabajoId,
-                                                  trabajadorId: trabajadorId,
-                                                  tituloTrabajo: widget.tituloTrabajo,
-                                                  nombreTrabajador: nombre,
-                                                  rol: "EMPLEADOR",
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: SizedBox(
+                                                height: 42,
+                                                child: ElevatedButton(
+                                                  onPressed: () => aceptarYIrAProgreso(p),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor: const Color(0xFF16A34A),
+                                                    foregroundColor: Colors.white,
+                                                    elevation: 0,
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius: BorderRadius.circular(999),
+                                                    ),
+                                                  ),
+                                                  child: const Text(
+                                                    "Aceptar",
+                                                    style: TextStyle(fontWeight: FontWeight.w900),
+                                                  ),
                                                 ),
                                               ),
-                                            );
-                                          },
-                                          icon: const Icon(Icons.timeline),
-                                          label: const Text("Ver progreso"),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: SizedBox(
+                                                height: 42,
+                                                child: OutlinedButton(
+                                                  onPressed: () => cambiarEstado(p["id"], "rechazado"),
+                                                  style: OutlinedButton.styleFrom(
+                                                    foregroundColor: const Color(0xFF6B7280),
+                                                    side: const BorderSide(color: Color(0xFFD1D5DB)),
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius: BorderRadius.circular(999),
+                                                    ),
+                                                  ),
+                                                  child: const Text(
+                                                    "Rechazar",
+                                                    style: TextStyle(fontWeight: FontWeight.w900),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
+                                      ],
+
+                                      if (estado == "aceptado") ...[
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: _pillAction(
+                                            icon: Icons.timeline,
+                                            text: "Ver progreso",
+                                            onTap: () {
+                                              if (trabajadorId == null) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text("No se encontró userId del postulante"),
+                                                  ),
+                                                );
+                                                return;
+                                              }
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) => ProgresoTrabajoScreen(
+                                                    trabajoId: widget.trabajoId,
+                                                    trabajadorId: trabajadorId,
+                                                    tituloTrabajo: widget.tituloTrabajo,
+                                                    nombreTrabajador: nombre,
+                                                    rol: "EMPLEADOR",
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 ],
@@ -390,52 +532,6 @@ class _VerPostulacionesScreenState extends State<VerPostulacionesScreen> {
                 ),
               ],
             ),
-    );
-  }
-
-  // ============================
-  // 📊 TARJETA DE ESTADÍSTICA
-  // ============================
-  Widget _statCard(
-    String label,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: color.withOpacity(0.15),
-            child: Icon(icon, color: color),
-          ),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey,
-                ),
-              ),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }
