@@ -21,7 +21,7 @@ class SeleccionScreen extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Text(
-                'TodoServy',
+                'ServiX',
                 style: TextStyle(
                   fontSize: 40,
                   fontWeight: FontWeight.bold,
@@ -104,7 +104,7 @@ class SeleccionScreen extends StatelessWidget {
 
               const SizedBox(height: 60),
               const Text(
-                '© 2025 TodoServy - Todos los derechos reservados',
+                '© 2025 ServiX- Todos los derechos reservados',
                 style: TextStyle(color: Colors.white60, fontSize: 12),
               ),
             ],
