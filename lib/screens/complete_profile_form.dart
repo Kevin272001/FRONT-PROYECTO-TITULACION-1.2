@@ -84,8 +84,6 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
 
       // 🔹 CASO 2: REGISTRO / LOGIN
       final auth = context.read<AuthProvider>();
-
-      // ⏳ ESPERAMOS A QUE EL PROVIDER CARGUE BIEN
       await Future.delayed(const Duration(milliseconds: 200));
 
       if (!mounted) return;
@@ -111,14 +109,13 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
   }
 
   // =====================================================
-  // FILE PICKER
+  // FILE PICKER - RECORD POLICIAL
   // =====================================================
   Future<void> _pickRecordPolicial() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
-        withData: false,
       );
 
       if (result == null || result.files.isEmpty) return;
@@ -186,7 +183,7 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
   }
 
   // =====================================================
-  // UI
+  // UI HELPERS
   // =====================================================
   InputDecoration _inputDecoration({
     required String label,
@@ -203,6 +200,9 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
     );
   }
 
+  // =====================================================
+  // UI
+  // =====================================================
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -223,6 +223,9 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
             ),
             const SizedBox(height: 12),
 
+            // ===============================
+            // TIPO PERSONA
+            // ===============================
             DropdownButtonFormField<String>(
               value: _tipoPersona,
               items: const [
@@ -245,6 +248,9 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
             ),
             const SizedBox(height: 10),
 
+            // ===============================
+            // CAMPOS
+            // ===============================
             TextFormField(
               controller: _nombreController,
               decoration: _inputDecoration(
@@ -347,6 +353,59 @@ class _CompleteProfileFormState extends State<CompleteProfileForm> {
             ),
             const SizedBox(height: 14),
 
+            // ===============================
+            // RECORD POLICIAL
+            // ===============================
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Récord policial (PDF o imagen)',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            InkWell(
+              onTap: _pickRecordPolicial,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F4F6),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade400),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.upload_file, color: Colors.blue),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _recordPolicialFile == null
+                            ? 'Subir archivo'
+                            : _recordPolicialFile!.name,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (_recordPolicialFile != null)
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.red),
+                        onPressed: _removeRecordPolicial,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            // ===============================
+            // SUBMIT
+            // ===============================
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
